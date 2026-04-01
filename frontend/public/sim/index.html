@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Traffic Control System | Hack4Green</title>
+    <meta name="description" content="Real-time AI-powered adaptive traffic signal controller with Q-learning, fairness-aware priority accumulation, and emissions reduction.">
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app">
+
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo">
+                    <div class="logo-icon-wrap">
+                        <span class="logo-icon">🚦</span>
+                    </div>
+                    <div class="logo-text">
+                        <h1>AI Traffic Control</h1>
+                        <p class="subtitle">Adaptive 4-Way Intersection · Q-Learning · Fairness-Aware Priority</p>
+                    </div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="sim-timer">
+                    <span class="timer-icon">⏱</span>
+                    <span id="sim-time" class="mono">0:00</span>
+                </div>
+                <div class="status-pill" id="sim-status-pill">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span id="sim-status-text">STANDBY</span>
+                </div>
+                <div class="mode-badge" id="ai-mode-badge">MANUAL</div>
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <div class="layout">
+
+            <!-- Canvas Section -->
+            <section class="canvas-section">
+                <div class="canvas-wrapper">
+                    <div class="canvas-container" id="canvas-container">
+                        <canvas id="trafficCanvas"></canvas>
+                        <div class="dir-label top">NORTH ↓</div>
+                        <div class="dir-label bottom">SOUTH ↑</div>
+                        <div class="dir-label left">← WEST</div>
+                        <div class="dir-label right">EAST →</div>
+                    </div>
+                </div>
+
+                <!-- Simulation Controls Bar -->
+                <div class="sim-bar">
+                    <div class="sim-bar-group">
+                        <button id="btn-start" class="btn btn-primary" title="Start simulation">▶ START</button>
+                        <button id="btn-pause" class="btn btn-secondary" title="Pause/Resume">⏸ PAUSE</button>
+                        <button id="btn-reset" class="btn btn-ghost" title="Reset all">↺ RESET</button>
+                    </div>
+                    <div class="sim-bar-group">
+                        <select id="traffic-pattern" class="pattern-select">
+                            <option value="balanced">🔄 Balanced</option>
+                            <option value="rushNS">⬆ Rush N-S</option>
+                            <option value="rushEW">➡ Rush E-W</option>
+                            <option value="burst">💥 Burst</option>
+                        </select>
+                    </div>
+                    <div class="sim-bar-group speed-group">
+                        <label class="speed-label">Speed</label>
+                        <input type="range" id="sim-speed" min="0.5" max="5" step="0.5" value="1">
+                        <span id="speed-val" class="mono">1×</span>
+                    </div>
+                    <div class="sim-bar-group">
+                        <button id="btn-baseline" class="btn btn-baseline" title="Run fixed-timer baseline for comparison">📏 BASELINE</button>
+                        <button id="btn-ai" class="btn btn-ai">🤖 AI MODE</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Sidebar -->
+            <aside class="sidebar">
+
+                <!-- Live Metrics -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-icon">📊</span> Live Metrics
+                    </div>
+                    <div class="metrics-grid">
+                        <div class="metric">
+                            <span class="metric-val" id="m-vehicles">0</span>
+                            <span class="metric-lbl">Active</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-val" id="m-wait">0s</span>
+                            <span class="metric-lbl">Avg Wait</span>
+                        </div>
+                        <div class="metric accent">
+                            <span class="metric-val" id="m-throughput">0</span>
+                            <span class="metric-lbl">Cleared/min</span>
+                        </div>
+                        <div class="metric accent2">
+                            <span class="metric-val" id="m-reward">0</span>
+                            <span class="metric-lbl">AI Score</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Emissions Panel -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-icon">🌿</span> Emissions
+                    </div>
+                    <div class="emissions-grid">
+                        <div class="emission-card co2">
+                            <span class="em-val" id="em-co2">0.0</span>
+                            <span class="em-unit">g</span>
+                            <span class="em-lbl">CO₂</span>
+                        </div>
+                        <div class="emission-card fuel">
+                            <span class="em-val" id="em-fuel">0.0000</span>
+                            <span class="em-unit">L</span>
+                            <span class="em-lbl">Fuel</span>
+                        </div>
+                        <div class="emission-card nox">
+                            <span class="em-val" id="em-nox">0.00</span>
+                            <span class="em-unit">mg</span>
+                            <span class="em-lbl">NOx</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Queue Lengths -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-icon">🚗</span> Queue Lengths
+                    </div>
+                    <div class="queue-bars">
+                        <div class="qb-row">
+                            <span class="qb-lbl">N</span>
+                            <div class="qb-track"><div class="qb-fill" id="q-N"></div></div>
+                            <span class="qb-num" id="qn-N">0</span>
+                        </div>
+                        <div class="qb-row">
+                            <span class="qb-lbl">S</span>
+                            <div class="qb-track"><div class="qb-fill" id="q-S"></div></div>
+                            <span class="qb-num" id="qn-S">0</span>
+                        </div>
+                        <div class="qb-row">
+                            <span class="qb-lbl">E</span>
+                            <div class="qb-track"><div class="qb-fill" id="q-E"></div></div>
+                            <span class="qb-num" id="qn-E">0</span>
+                        </div>
+                        <div class="qb-row">
+                            <span class="qb-lbl">W</span>
+                            <div class="qb-track"><div class="qb-fill" id="q-W"></div></div>
+                            <span class="qb-num" id="qn-W">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Fairness / Priority Panel -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-icon">⚖</span> Fairness Priority
+                        <span class="panel-badge starvation-badge">🚨 <span id="starvation-count">0</span></span>
+                    </div>
+                    <div class="fairness-grid">
+                        <div class="fair-row" id="fr-N">
+                            <span class="fair-dir">N</span>
+                            <div class="fair-track"><div class="fair-fill" id="fp-N"></div></div>
+                            <span class="fair-val" id="fpv-N">0.00</span>
+                            <span class="fair-red" id="frd-N">0s</span>
+                        </div>
+                        <div class="fair-row" id="fr-S">
+                            <span class="fair-dir">S</span>
+                            <div class="fair-track"><div class="fair-fill" id="fp-S"></div></div>
+                            <span class="fair-val" id="fpv-S">0.00</span>
+                            <span class="fair-red" id="frd-S">0s</span>
+                        </div>
+                        <div class="fair-row" id="fr-E">
+                            <span class="fair-dir">E</span>
+                            <div class="fair-track"><div class="fair-fill" id="fp-E"></div></div>
+                            <span class="fair-val" id="fpv-E">0.00</span>
+                            <span class="fair-red" id="frd-E">0s</span>
+                        </div>
+                        <div class="fair-row" id="fr-W">
+                            <span class="fair-dir">W</span>
+                            <div class="fair-track"><div class="fair-fill" id="fp-W"></div></div>
+                            <span class="fair-val" id="fpv-W">0.00</span>
+                            <span class="fair-red" id="frd-W">0s</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Signal Control -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-icon">🔴</span> Signal Control
+                        <span class="panel-badge" id="ctrl-mode-note">MANUAL</span>
+                    </div>
+                    <div class="signal-panel">
+                        <div class="signal-row">
+                            <div class="signal-info">
+                                <div class="signal-lights">
+                                    <div class="signal-light" id="ns-light-r"></div>
+                                    <div class="signal-light" id="ns-light-y"></div>
+                                    <div class="signal-light" id="ns-light-g"></div>
+                                </div>
+                                <span class="signal-name">NS ↑↓</span>
+                            </div>
+                            <button id="btn-ns" class="btn btn-signal">Force GREEN</button>
+                        </div>
+                        <div class="signal-row">
+                            <div class="signal-info">
+                                <div class="signal-lights">
+                                    <div class="signal-light" id="ew-light-r"></div>
+                                    <div class="signal-light" id="ew-light-y"></div>
+                                    <div class="signal-light" id="ew-light-g active-g"></div>
+                                </div>
+                                <span class="signal-name">EW ←→</span>
+                            </div>
+                            <button id="btn-ew" class="btn btn-signal active-signal">Force RED</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts (Sparklines) -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-icon">📈</span> Live Charts
+                    </div>
+                    <div class="charts-container">
+                        <div class="chart-card">
+                            <span class="chart-label">Avg Wait Time</span>
+                            <canvas id="chart-wait" class="sparkline-canvas"></canvas>
+                        </div>
+                        <div class="chart-card">
+                            <span class="chart-label">CO₂ Rate (g/s)</span>
+                            <canvas id="chart-co2" class="sparkline-canvas"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Baseline Progress (hidden by default) -->
+                <div class="panel baseline-panel" id="baseline-progress" style="display:none;">
+                    <div class="panel-header">
+                        <span class="panel-icon">📏</span> Baseline Running
+                    </div>
+                    <div class="baseline-prog-wrap">
+                        <div class="baseline-prog-track">
+                            <div class="baseline-prog-fill" id="baseline-prog-bar"></div>
+                        </div>
+                        <span class="baseline-prog-text" id="baseline-prog-text">0/60s</span>
+                    </div>
+                </div>
+
+                <!-- Comparison Panel (hidden until data) -->
+                <div class="panel comparison-result" id="comparison-panel" style="display:none;">
+                    <div class="panel-header">
+                        <span class="panel-icon">🏆</span> Fixed vs AI Comparison
+                    </div>
+                    <div class="cmp-table">
+                        <div class="cmp-header">
+                            <span></span><span>Fixed</span><span>AI</span><span>Δ</span>
+                        </div>
+                        <div class="cmp-row">
+                            <span class="cmp-metric">Avg Wait</span>
+                            <span id="cmp-base-wait">—</span>
+                            <span id="cmp-ai-wait">—</span>
+                            <span id="cmp-imp-wait" class="cmp-imp">—</span>
+                        </div>
+                        <div class="cmp-row">
+                            <span class="cmp-metric">CO₂</span>
+                            <span id="cmp-base-co2">—</span>
+                            <span id="cmp-ai-co2">—</span>
+                            <span id="cmp-imp-co2" class="cmp-imp">—</span>
+                        </div>
+                        <div class="cmp-row">
+                            <span class="cmp-metric">Fuel</span>
+                            <span id="cmp-base-fuel">—</span>
+                            <span id="cmp-ai-fuel">—</span>
+                            <span id="cmp-imp-fuel" class="cmp-imp">—</span>
+                        </div>
+                        <div class="cmp-row">
+                            <span class="cmp-metric">Throughput</span>
+                            <span id="cmp-base-thru">—</span>
+                            <span id="cmp-ai-thru">—</span>
+                            <span id="cmp-imp-thru" class="cmp-imp">—</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Scalability -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-icon">🏙</span> Citywide Scale (×500)
+                    </div>
+                    <div class="scale-grid">
+                        <div class="scale-card">
+                            <span class="scale-val" id="scale-hourly">— kg</span>
+                            <span class="scale-lbl">CO₂ saved/hour</span>
+                        </div>
+                        <div class="scale-card">
+                            <span class="scale-val" id="scale-daily">— tons</span>
+                            <span class="scale-lbl">CO₂ saved/day</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Traffic Injection -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-icon">➕</span> Inject Traffic
+                    </div>
+                    <div class="inject-panel">
+                        <div class="dir-grid">
+                            <div></div>
+                            <button class="dir-btn active" data-dir="N">↓ N</button>
+                            <div></div>
+                            <button class="dir-btn" data-dir="W">→ W</button>
+                            <button class="dir-btn all-btn" data-dir="ALL">ALL</button>
+                            <button class="dir-btn" data-dir="E">← E</button>
+                            <div></div>
+                            <button class="dir-btn" data-dir="S">↑ S</button>
+                            <div></div>
+                        </div>
+                        <div class="inject-controls">
+                            <input type="number" id="inject-count" value="5" min="1" max="20" class="inject-input">
+                            <button id="btn-inject" class="btn btn-outline">Inject</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Console -->
+                <div class="panel ai-panel">
+                    <div class="panel-header">
+                        <span class="panel-icon">🤖</span> AI Console
+                    </div>
+                    <div id="ai-log" class="ai-log">
+                        <div class="ai-line">&gt; System initialized...</div>
+                        <div class="ai-line">&gt; Awaiting simulation start.</div>
+                    </div>
+                </div>
+
+            </aside>
+        </div>
+    </div>
+
+    <script src="simulation.js"></script>
+    <script src="ai_controller.js"></script>
+</body>
+</html>
