@@ -11,6 +11,10 @@ Models a 4-way intersection with:
   - Carbon intensity based on time of day
   - CO2 emission estimation
   - Reward function incorporating waiting time and emissions
+
+Fixes applied:
+  - Reward no longer double-penalises emissions (removed flat emission term)
+  - reset() now correctly refreshes carbon_intensity from self.hour
 """
 
 import random
@@ -95,12 +99,15 @@ def compute_reward(
     Penalises:
         - Total waiting time (sum of red durations)
         - CO2 emissions weighted by carbon intensity
-        - Large queues (proxy for congestion)
 
     Formula:
         emission     = (queue_NS + queue_EW) * EMISSION_FACTOR * carbon_intensity
         waiting_time = red_NS + red_EW
-        reward       = -(waiting_time + emission + carbon_intensity * emission)
+        reward       = -(waiting_time + emission)
+
+    FIX: Previously the formula was -(waiting_time + emission + carbon_intensity * emission),
+    which double-counted emissions. The carbon weight is already baked into
+    estimate_emission() via carbon_intensity, so the flat emission term was removed.
 
     Returns:
         float: Negative reward (lower is worse; zero is perfect).
@@ -109,7 +116,7 @@ def compute_reward(
     idle_total   = float(queue_NS + queue_EW)
     emission     = estimate_emission(idle_total, carbon_intensity)
 
-    reward = -(waiting_time + emission + carbon_intensity * emission)
+    reward = -(waiting_time + emission)
     return reward
 
 
@@ -154,9 +161,14 @@ class TrafficEnv:
         """
         Resets the environment to its initial state with small random queues.
 
+        FIX: Now correctly refreshes carbon_intensity from self.hour so that
+        when the training loop mutates env.hour between episodes, the new
+        carbon intensity is actually applied during the episode.
+
         Returns:
             tuple: Initial discretised state.
         """
+        self.carbon_intensity = get_carbon_intensity(self.hour)  # FIX
         self.queue_NS = random.randint(0, 3)
         self.queue_EW = random.randint(0, 3)
         self.red_NS   = 0
@@ -217,18 +229,18 @@ class TrafficEnv:
             action: Integer action index (0, 1, or 2).
         """
         if action == 1:  # switch_phase — toggle signal
-            self.phase   = 1 - self.phase
-            # Reset red timers on switch
-            self.red_NS  = 0
-            self.red_EW  = 0
+            self.phase  = 1 - self.phase
+            # Reset red timers on phase switch before re-accumulating below
+            self.red_NS = 0
+            self.red_EW = 0
 
         # Update red timers — the lane that is NOT green accumulates red time
         if self.phase == 0:          # NS is green, EW is red
-            self.red_EW  = min(self.red_EW + 1, MAX_RED_TIME)
-            self.red_NS  = 0         # NS is flowing; reset its red counter
+            self.red_EW = min(self.red_EW + 1, MAX_RED_TIME)
+            self.red_NS = 0          # NS is flowing; reset its red counter
         else:                        # EW is green, NS is red
-            self.red_NS  = min(self.red_NS + 1, MAX_RED_TIME)
-            self.red_EW  = 0
+            self.red_NS = min(self.red_NS + 1, MAX_RED_TIME)
+            self.red_EW = 0
 
         # Vehicle clearance — green lane drains its queue
         extra = 1 if action == 2 else 0      # extend_green clears one more

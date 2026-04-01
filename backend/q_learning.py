@@ -10,14 +10,21 @@ Implements:
   - Training loop over multiple episodes
   - Learning progress logging
   - Model persistence (save / load Q-table)
+
+Fixes applied:
+  - Removed __import__() hack; get_carbon_intensity imported directly
+  - Q-table keys loaded safely via ast.literal_eval instead of fragile string split
+  - NUM_EPISODES raised to 5000 for adequate state-space coverage
+  - Warmup phase (first 10% of episodes) runs with epsilon=1.0 for broad exploration
 """
 
+import ast
 import random
 import json
 import os
 from collections import defaultdict
 
-from environment import TrafficEnv, ACTION_LIST, ACTIONS
+from environment import TrafficEnv, ACTION_LIST, ACTIONS, get_carbon_intensity
 
 # ---------------------------------------------------------------------------
 # Hyperparameters
@@ -26,10 +33,11 @@ ALPHA          = 0.1     # Learning rate  — how much new info overrides old
 GAMMA          = 0.9     # Discount factor — importance of future rewards
 EPSILON_START  = 1.0     # Initial exploration rate (100% random)
 EPSILON_MIN    = 0.05    # Minimum exploration rate
-EPSILON_DECAY  = 0.995   # Multiplicative decay per episode
-NUM_EPISODES   = 1000    # Total training episodes
+EPSILON_DECAY  = 0.999   # Multiplicative decay per episode (slower decay for 5k eps)
+NUM_EPISODES   = 5000    # FIX: raised from 1000 — covers far more of state space
 MAX_STEPS      = 200     # Maximum steps per episode
-LOG_INTERVAL   = 50      # Print progress every N episodes
+LOG_INTERVAL   = 250     # Print progress every N episodes
+WARMUP_RATIO   = 0.10    # First 10% of episodes use pure exploration (epsilon=1.0)
 QTABLE_PATH    = "q_table.json"  # Path to persist the Q-table
 
 
@@ -76,7 +84,7 @@ class QLearningAgent:
     # ------------------------------------------------------------------
     # Action Selection (Epsilon-Greedy)
     # ------------------------------------------------------------------
-    def select_action(self, state: tuple) -> int:
+    def select_action(self, state: tuple, force_explore: bool = False) -> int:
         """
         Selects an action using the epsilon-greedy strategy.
 
@@ -84,14 +92,15 @@ class QLearningAgent:
         With probability 1-epsilon → exploit (greedy best action)
 
         Args:
-            state: Discretised environment state tuple.
+            state:         Discretised environment state tuple.
+            force_explore: If True, always explore (used during warmup phase).
 
         Returns:
             int: Action index (0, 1, or 2).
         """
-        if random.random() < self.epsilon:
-            return random.choice(ACTION_LIST)          # Explore
-        return int(self._best_action(state))            # Exploit
+        if force_explore or random.random() < self.epsilon:
+            return random.choice(ACTION_LIST)   # Explore
+        return int(self._best_action(state))     # Exploit
 
     def _best_action(self, state: tuple) -> int:
         """Returns the action with the highest Q-value for the given state."""
@@ -125,9 +134,9 @@ class QLearningAgent:
             next_state: Resulting state after action.
             done:       Whether the episode has ended.
         """
-        current_q  = self.q_table[state][action]
-        future_q   = 0.0 if done else max(self.q_table[next_state])
-        target     = reward + self.gamma * future_q
+        current_q = self.q_table[state][action]
+        future_q  = 0.0 if done else max(self.q_table[next_state])
+        target    = reward + self.gamma * future_q
         self.q_table[state][action] = current_q + self.alpha * (target - current_q)
 
     # ------------------------------------------------------------------
@@ -171,12 +180,15 @@ class QLearningAgent:
         serialisable = {str(k): v for k, v in self.q_table.items()}
         with open(path, "w") as f:
             json.dump(serialisable, f, indent=2)
-        print(f"[INFO] Q-table saved → {os.path.abspath(path)}")
+        print(f"[INFO] Q-table saved → {os.path.abspath(path)}  ({len(self.q_table)} states)")
 
     def load(self, path: str = QTABLE_PATH):
         """
         Loads a previously saved Q-table from a JSON file.
-        String keys are converted back to tuples.
+        String keys are safely parsed back to tuples via ast.literal_eval.
+
+        FIX: Replaced fragile str.strip().split() parsing with ast.literal_eval
+        which correctly handles any valid Python tuple literal.
 
         Args:
             path: File path of the saved Q-table.
@@ -188,13 +200,13 @@ class QLearningAgent:
         with open(path, "r") as f:
             raw = json.load(f)
 
-        # Convert string keys back to tuples
+        # FIX: ast.literal_eval safely converts "(0, 1, 2, ...)" → tuple
         self.q_table = defaultdict(lambda: [0.0] * len(ACTION_LIST))
         for k_str, v in raw.items():
-            key = tuple(int(x) for x in k_str.strip("()").split(", "))
+            key = tuple(ast.literal_eval(k_str))
             self.q_table[key] = v
 
-        print(f"[INFO] Q-table loaded ← {os.path.abspath(path)}")
+        print(f"[INFO] Q-table loaded ← {os.path.abspath(path)}  ({len(self.q_table)} states)")
 
 
 # ---------------------------------------------------------------------------
@@ -212,12 +224,17 @@ def train(
         1. Reset environment with a random hour [0–23]
         2. Run up to max_steps, collecting (s, a, r, s', done) tuples
         3. Update Q-table after each step
-        4. Decay epsilon at episode end
+        4. Decay epsilon at episode end (skipped during warmup phase)
+
+    Warmup phase (first WARMUP_RATIO * num_episodes episodes):
+        epsilon is forced to 1.0 to ensure every region of the state space
+        is visited before exploitation begins.
 
     Every log_interval episodes, prints:
         - Episode number
         - Total reward
         - Average waiting time (red_NS + red_EW averaged over steps)
+        - Q-table size (unique states visited)
         - Current epsilon
 
     Args:
@@ -228,55 +245,63 @@ def train(
     Returns:
         QLearningAgent: Trained agent with populated Q-table.
     """
-    agent = QLearningAgent()
-    env   = TrafficEnv()
+    agent        = QLearningAgent()
+    env          = TrafficEnv()
+    warmup_limit = int(num_episodes * WARMUP_RATIO)
 
-    print("=" * 60)
+    print("=" * 65)
     print(" Climate-Aware Traffic Signal — Q-Learning Training")
-    print("=" * 60)
-    print(f"  Episodes : {num_episodes}")
-    print(f"  Max steps: {max_steps}")
-    print(f"  α={ALPHA}  γ={GAMMA}  ε_start={EPSILON_START}  ε_min={EPSILON_MIN}")
-    print("=" * 60)
+    print("=" * 65)
+    print(f"  Episodes  : {num_episodes}  (warmup: first {warmup_limit})")
+    print(f"  Max steps : {max_steps}")
+    print(f"  α={ALPHA}  γ={GAMMA}  ε_start={EPSILON_START}  ε_min={EPSILON_MIN}  ε_decay={EPSILON_DECAY}")
+    print("=" * 65)
 
     for episode in range(1, num_episodes + 1):
-        # Randomise hour each episode for generalisation
-        env.hour             = random.randint(0, 23)
-        env.carbon_intensity = __import__("environment").get_carbon_intensity(env.hour)
+        in_warmup = episode <= warmup_limit
 
-        state          = env.reset()
-        total_reward   = 0.0
-        total_waiting  = 0.0
+        # Randomise hour each episode for generalisation across carbon bins
+        env.hour = random.randint(0, 23)
+        # FIX: call imported get_carbon_intensity directly — no __import__ hack
+        env.carbon_intensity = get_carbon_intensity(env.hour)
+
+        state         = env.reset()
+        total_reward  = 0.0
+        total_waiting = 0.0
 
         for step in range(max_steps):
-            action              = agent.select_action(state)
+            action                   = agent.select_action(state, force_explore=in_warmup)
             next_state, reward, done = env.step(action)
 
             agent.update(state, action, reward, next_state, done)
 
             total_reward  += reward
-            total_waiting += (env.red_NS + env.red_EW)   # proxy for waiting time
+            total_waiting += (env.red_NS + env.red_EW)
             state          = next_state
 
             if done:
                 break
 
-        agent.decay_epsilon()
+        # Only decay epsilon after warmup is complete
+        if not in_warmup:
+            agent.decay_epsilon()
 
         # ---- Logging ----
         if episode % log_interval == 0 or episode == 1:
             steps_run   = step + 1
             avg_waiting = total_waiting / steps_run
+            phase_tag   = "WARMUP" if in_warmup else f"ε={agent.epsilon:.4f}"
             print(
-                f"  Episode {episode:>5} | "
-                f"Total Reward: {total_reward:>10.2f} | "
-                f"Avg Waiting: {avg_waiting:>6.2f}s | "
-                f"ε: {agent.epsilon:.4f}"
+                f"  Episode {episode:>5}/{num_episodes} | "
+                f"Reward: {total_reward:>10.2f} | "
+                f"Avg Wait: {avg_waiting:>5.2f}s | "
+                f"States: {len(agent.q_table):>4} | "
+                f"{phase_tag}"
             )
 
-    print("=" * 60)
-    print("  Training complete.")
-    print("=" * 60)
+    print("=" * 65)
+    print(f"  Training complete. Q-table covers {len(agent.q_table)} unique states.")
+    print("=" * 65)
 
     # Persist trained Q-table
     agent.save()
