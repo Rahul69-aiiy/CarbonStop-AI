@@ -30,7 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 # Internal imports
-from environment import TrafficEnv, get_carbon_intensity, ACTIONS
+from environment1 import TrafficEnv, get_carbon_intensity, ACTIONS
 from q_learning  import QLearningAgent, train, QTABLE_PATH
 
 # ---------------------------------------------------------------------------
