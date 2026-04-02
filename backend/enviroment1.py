@@ -306,7 +306,7 @@ class TrafficEnv:
         self.red_EW,
         self.carbon_intensity,
         action,
-        getattr(self, "prev_action", None),
+        getattr(self, "prev_action", None), # type: ignore
 )
         self.prev_action = action  # Store for next step's switching penalty
         self.timestep += 1
