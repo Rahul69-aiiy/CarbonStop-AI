@@ -1,4 +1,4 @@
-# HackforGreen - Traffic Signal Optimization
+# Traffic Signal Optimization
 
 This project consists of two main components: a React Frontend Dashboard (which natively embeds the web simulation) and a Machine Learning FastAPI Backend.
 
