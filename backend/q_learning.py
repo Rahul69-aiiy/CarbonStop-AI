@@ -32,9 +32,9 @@ from environment import TrafficEnv, ACTION_LIST, ACTIONS, get_carbon_intensity
 ALPHA          = 0.1     # Learning rate  — how much new info overrides old
 GAMMA          = 0.9     # Discount factor — importance of future rewards
 EPSILON_START  = 1.0     # Initial exploration rate (100% random)
-EPSILON_MIN    = 0.05    # Minimum exploration rate
-EPSILON_DECAY  = 0.999   # Multiplicative decay per episode (slower decay for 5k eps)
-NUM_EPISODES   = 5000    # FIX: raised from 1000 — covers far more of state space
+EPSILON_MIN    = 0.1     # Minimum exploration rate
+EPSILON_DECAY  = 0.998   # Multiplicative decay per episode (slower decay for 5k eps)
+NUM_EPISODES   = 10000   # FIX: raised from 5000 — covers far more of state space
 MAX_STEPS      = 200     # Maximum steps per episode
 LOG_INTERVAL   = 250     # Print progress every N episodes
 WARMUP_RATIO   = 0.10    # First 10% of episodes use pure exploration (epsilon=1.0)
