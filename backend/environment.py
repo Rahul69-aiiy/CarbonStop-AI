@@ -1,8 +1,6 @@
 """
 environment.py
---------------
 Traffic Intersection Simulation Environment for Climate-Aware
-Signal Optimization using Q-Learning.
 
 Models a 4-way intersection with:
   - North-South (NS) and East-West (EW) vehicle queues
@@ -11,17 +9,11 @@ Models a 4-way intersection with:
   - Carbon intensity based on time of day
   - CO2 emission estimation
   - Reward function incorporating waiting time and emissions
-
-Fixes applied:
-  - Reward no longer double-penalises emissions (removed flat emission term)
-  - reset() now correctly refreshes carbon_intensity from self.hour
 """
 
 import random
 
-# ---------------------------------------------------------------------------
 # Constants
-# ---------------------------------------------------------------------------
 MAX_QUEUE        = 20        # Maximum vehicles in a queue
 EMISSION_FACTOR  = 0.21      # kg CO2 per idle vehicle per timestep (approx.)
 MAX_RED_TIME     = 60        # Maximum allowed red duration (seconds)
@@ -29,9 +21,8 @@ ARRIVAL_RATE_NS  = 0.3       # Probability of a vehicle arriving in NS per step
 ARRIVAL_RATE_EW  = 0.3       # Probability of a vehicle arriving in EW per step
 VEHICLES_PASS    = 3         # Vehicles that clear the queue when phase is green
 
-# ---------------------------------------------------------------------------
 # Action definitions
-# ---------------------------------------------------------------------------
+
 ACTIONS = {
     0: "keep_green",    # Keep the current green phase unchanged
     1: "switch_phase",  # Toggle between NS-green and EW-green
@@ -40,9 +31,7 @@ ACTIONS = {
 ACTION_LIST = list(ACTIONS.keys())
 
 
-# ---------------------------------------------------------------------------
 # Carbon Intensity
-# ---------------------------------------------------------------------------
 def get_carbon_intensity(hour: int) -> float:
     """
     Returns a carbon intensity multiplier based on the hour of day.
@@ -62,9 +51,7 @@ def get_carbon_intensity(hour: int) -> float:
         return 1.0   # Lower carbon — more renewables active
 
 
-# ---------------------------------------------------------------------------
 # Emission Estimation
-# ---------------------------------------------------------------------------
 def estimate_emission(idle_time: float, carbon_intensity: float) -> float:
     """
     Estimates CO2 emission for idling vehicles.
@@ -83,9 +70,7 @@ def estimate_emission(idle_time: float, carbon_intensity: float) -> float:
     return idle_time * EMISSION_FACTOR * carbon_intensity
 
 
-# ---------------------------------------------------------------------------
 # Reward Function
-# ---------------------------------------------------------------------------
 def compute_reward(
     queue_NS: int,
     queue_EW: int,
@@ -105,10 +90,6 @@ def compute_reward(
         waiting_time = red_NS + red_EW
         reward       = -(waiting_time + emission)
 
-    FIX: Previously the formula was -(waiting_time + emission + carbon_intensity * emission),
-    which double-counted emissions. The carbon weight is already baked into
-    estimate_emission() via carbon_intensity, so the flat emission term was removed.
-
     Returns:
         float: Negative reward (lower is worse; zero is perfect).
     """
@@ -120,9 +101,7 @@ def compute_reward(
     return reward
 
 
-# ---------------------------------------------------------------------------
 # Traffic Intersection Environment
-# ---------------------------------------------------------------------------
 class TrafficEnv:
     """
     Simulates a single 4-way traffic intersection over discrete timesteps.
