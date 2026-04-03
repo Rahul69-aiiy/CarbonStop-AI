@@ -1,24 +1,19 @@
 """
 main.py
--------
-FastAPI Backend for Climate-Aware Traffic Signal Optimization.
 
-Exposes:
+FastAPI backend for the Climate-Aware Traffic Signal Optimizer.
+
+Endpoints:
     POST /predict   — Accepts current intersection state, returns best action.
     POST /simulate  — Runs a multi-step simulation and returns full trajectory.
-    GET  /health    — Health check endpoint.
-    GET  /info      — Returns model metadata and Q-table size.
+    GET  /health    — Health check.
+    GET  /info      — Model metadata and Q-table size.
 
-The Q-Learning agent is loaded from a pre-trained Q-table (q_table.json).
-If no saved table exists, the agent is trained on startup automatically.
+The Q-Learning agent loads from a pre-trained Q-table (q_table.json).
+If no saved table is found, training runs automatically on startup.
 
 Run with:
     uvicorn main:app --reload --port 8000
-
-Fixes applied:
-  - Replaced deprecated @app.on_event("startup") with the lifespan context manager
-    pattern (FastAPI 0.95+ recommended approach)
-  - Added POST /simulate endpoint for richer frontend visualisations
 """
 
 import os
@@ -29,20 +24,12 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-# Internal imports
 from environment1 import TrafficEnv, get_carbon_intensity, ACTIONS
 from q_learning  import QLearningAgent, train, QTABLE_PATH
 
-# ---------------------------------------------------------------------------
-# Agent (module-level singleton — read-only at inference time, thread-safe)
-# ---------------------------------------------------------------------------
+# Module-level agent singleton — read-only at inference time
 agent = QLearningAgent()
 
-
-# ---------------------------------------------------------------------------
-# Lifespan — Load or Train Agent on Startup
-# FIX: Replaces deprecated @app.on_event("startup")
-# ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -58,13 +45,7 @@ async def lifespan(app: FastAPI):
         print("[API] No saved Q-table found — running training now...")
         agent = train()
         print(f"[API] Training complete. Q-table has {len(agent.q_table)} states.")
-    yield   # Server runs here
-    # (add any shutdown cleanup here if needed)
-
-
-# ---------------------------------------------------------------------------
-# FastAPI Application
-# ---------------------------------------------------------------------------
+    yield
 app = FastAPI(
     title       = "Climate-Aware Traffic Signal Optimizer",
     description = (
@@ -73,7 +54,7 @@ app = FastAPI(
         "reduce vehicle waiting time at a 4-way intersection."
     ),
     version     = "1.1.0",
-    lifespan    = lifespan,   # FIX: wire up the lifespan handler
+    lifespan    = lifespan,
 )
 
 # Allow cross-origin requests so the JavaScript frontend can call this API
@@ -86,9 +67,6 @@ app.add_middleware(
 )
 
 
-# ---------------------------------------------------------------------------
-# Request / Response Schemas
-# ---------------------------------------------------------------------------
 class TrafficState(BaseModel):
     """
     Input payload representing the current state of the intersection.
@@ -144,9 +122,6 @@ class SimulateResponse(BaseModel):
     total_reward:     float
 
 
-# ---------------------------------------------------------------------------
-# Helper — Build Discretised State Tuple
-# ---------------------------------------------------------------------------
 def _build_state(ts: TrafficState) -> tuple:
     """
     Converts the raw API input into the same discretised state tuple
@@ -170,9 +145,6 @@ ACTION_EXPLANATIONS = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
 @app.post(
     "/predict",
     response_model = PredictResponse,
