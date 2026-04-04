@@ -6,10 +6,16 @@
  *   - Real-time emissions model (CO₂, Fuel, NOx)
  *   - Baseline vs AI comparison engine
  *   - Scalability projections
+ *   - Backend status monitoring & ML output panel
+ *   - Ambulance priority override with animated canvas vehicle
  */
 
-// ─── Backend API Integration ──────────────────────────────────────────────
+// ─── Backend API Integration ─────────────────────────────────────────
 const ML_API_URL = 'http://localhost:8000';
+
+// ─── Ambulance State ──────────────────────────────────────────────────
+let ambulanceActive = null; // { direction, startTime } | null
+let ambulanceClearTimer = null;
 
 // ─── Emissions Model Constants ─────────────────────────────────────────────
 const EMISSIONS = {
@@ -168,6 +174,7 @@ class AIController {
         this.prevAction = null;
         this.episodeSteps = 0;
         this.starvationEvents = 0;
+        this.peakEmission = 0;
 
         // Tick loop — 500ms for priority updates, emissions, charts
         setInterval(() => this.tick(), 500);
@@ -175,8 +182,14 @@ class AIController {
         setInterval(() => this.update(), 1500);
         // Chart update — 1s
         setInterval(() => this.updateCharts(), 1000);
+        // Backend status polling — every 5s
+        setInterval(() => this.checkBackendStatus(), 5000);
 
-        this.log('🧠 AI Traffic Optimizer v3.0 — Fairness-Aware');
+        // Initial checks
+        this.checkBackendStatus();
+        this.fetchModelInfo();
+
+        this.log('🧠 AI Traffic Optimizer v3.0 — Fairness-Aware + Ambulance Priority');
         this.log('📊 Q-Learning + Priority Accumulation enabled.');
         this.log('⏳ Enable AI Mode to start adaptive control.');
     }
@@ -337,7 +350,87 @@ class AIController {
         drawSparkline('chart-co2', chartData.co2Rate, '#22c55e');
     }
 
-    // ─── Main Decision Loop ─────────────────────────────────────────
+    // ─── Backend Status Polling ─────────────────────────────────
+    async checkBackendStatus() {
+        const dot   = document.getElementById('backend-dot');
+        const label = document.getElementById('backend-status-label');
+        const latEl = document.getElementById('backend-latency');
+        const stEl  = document.getElementById('backend-states');
+
+        const t0 = Date.now();
+        try {
+            const res  = await fetch(`${ML_API_URL}/health`);
+            const data = await res.json();
+            const ms   = Date.now() - t0;
+
+            if (dot)   { dot.className = 'backend-dot connected'; }
+            if (label) { label.innerText = 'CONNECTED'; label.style.color = '#4ade80'; }
+            if (latEl) { latEl.innerText = ms + ' ms'; }
+            if (stEl)  { stEl.innerText  = data.q_table_states ?? '—'; }
+        } catch {
+            if (dot)   { dot.className = 'backend-dot disconnected'; }
+            if (label) { label.innerText = 'OFFLINE'; label.style.color = '#f87171'; }
+            if (latEl) { latEl.innerText = '—'; }
+            if (stEl)  { stEl.innerText  = '—'; }
+        }
+    }
+
+    async fetchModelInfo() {
+        try {
+            const res  = await fetch(`${ML_API_URL}/model-info`);
+            const data = await res.json();
+            const modEl = document.getElementById('backend-model');
+            const verEl = document.getElementById('backend-version');
+            if (modEl) modEl.innerText = data.model ?? 'Q-Learning';
+            if (verEl) verEl.innerText = 'v' + (data.version ?? '?');
+        } catch { /* offline — ignore */ }
+    }
+
+    // ─── ML Output Panel ───────────────────────────────────────────
+    updateMLOutputPanel(data) {
+        const actionEl  = document.getElementById('ml-action');
+        const badgeEl   = document.getElementById('ml-action-badge');
+        const carbonEl  = document.getElementById('ml-carbon');
+        const peakEl    = document.getElementById('ml-peak');
+        const explEl    = document.getElementById('ml-explanation');
+
+        const ACTION_LABELS = {
+            'keep_green':   'KEEP GREEN',
+            'switch_phase': 'SWITCH ↔',
+            'extend_green': 'EXTEND GREEN',
+        };
+        const ACTION_COLORS = {
+            'keep_green':   '#4ade80',
+            'switch_phase': '#f59e0b',
+            'extend_green': '#60a5fa',
+        };
+
+        if (data.ambulance_override) {
+            if (actionEl)  { actionEl.innerText  = '🚑 AMBULANCE'; actionEl.style.color = '#f87171'; }
+            if (badgeEl)   { badgeEl.innerText   = '🚨 OVERRIDE'; badgeEl.style.color = '#f87171'; }
+        } else {
+            const label = ACTION_LABELS[data.action] || data.action.toUpperCase();
+            const color = ACTION_COLORS[data.action] || '#c084fc';
+            if (actionEl)  { actionEl.innerText  = label; actionEl.style.color = color; }
+            if (badgeEl)   { badgeEl.innerText   = label; badgeEl.style.color  = color; }
+        }
+
+        if (carbonEl) carbonEl.innerText = (data.carbon_intensity ?? '—') + '×';
+        if (explEl)   explEl.innerText   = data.explanation || '';
+
+        // Track peak emission (from simulate responses or local estimation)
+        if (data.carbon_intensity) {
+            const q = this.getQueues();
+            const EMISSION_FACTOR = 0.21;
+            const est = (q.NS + q.EW) * EMISSION_FACTOR * data.carbon_intensity;
+            if (est > this.peakEmission) {
+                this.peakEmission = est;
+            }
+            if (peakEl) peakEl.innerText = this.peakEmission.toFixed(3) + ' kg';
+        }
+    }
+
+    // ─── Main Decision Loop ──────────────────────────────────────────
     async update() {
         if (!isRunning || this.switching) return;
 
@@ -349,6 +442,17 @@ class AIController {
         const now = Date.now();
         const elapsed = (now - this.lastSwitchTime) / 1000;
         const q = this.getQueues();
+
+        // ─── Ambulance Override (bypasses all normal Q-learning logic) ───
+        if (ambulanceActive) {
+            const ambDir      = ambulanceActive.direction;                  // 'NS' | 'EW'
+            const currentPhase = signals.NS === SIGNAL.GREEN ? 'NS' : 'EW';
+            if (currentPhase !== ambDir) {
+                this.log(`🚑 AMBULANCE PRIORITY: ${ambDir} — forcing immediate green override.`);
+                await this.performSwitch();
+            }
+            return; // Do not run normal Q-learning while ambulance is active
+        }
 
         // Check starvation — force switch if any lane is starved
         const maxRedNS = Math.max(laneState.N.redDuration, laneState.S.redDuration);
@@ -410,6 +514,9 @@ class AIController {
             if (!res.ok) throw new Error('API Response not OK');
             const data = await res.json();
 
+            // Update ML output panel with every backend response
+            this.updateMLOutputPanel(data);
+
             // Map the API action to our local terms
             if (data.action === 'switch_phase') {
                 action = 'SWITCH';
@@ -419,14 +526,18 @@ class AIController {
 
             // Update local episode counter
             this.episodeSteps++;
-            
+
             // Logging for the ML outcome
-            if (action === 'SWITCH') {
+            if (data.ambulance_override) {
+                // Ambulance override logging (should not happen here, caught above, but defensive)
+                this.log(`🚑 ML: AMBULANCE PRIORITY → ${data.action}`);
+                if (action === 'SWITCH') await this.performSwitch();
+            } else if (action === 'SWITCH') {
                  const target = currentPhase === 'NS' ? 'EW' : 'NS';
                  this.log(`🌐 ML Backend: SWITCH → ${target} | ${data.explanation}`);
                  await this.performSwitch();
             } else if (this.episodeSteps % 4 === 0) {
-                 this.log(`🌐 ML Backend: KEEP ${currentPhase} | ${data.explanation} (CO₂ x${data.carbon_intensity.toFixed(2)})`);
+                 this.log(`🌐 ML Backend: KEEP ${currentPhase} | ${data.explanation} (CO₂ ×${data.carbon_intensity.toFixed(2)})`);
             }
 
         } catch (e) {
@@ -670,10 +781,92 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnBaseline) {
         btnBaseline.onclick = () => {
             if (!isRunning) {
-                // Auto-start sim if not already running
                 document.getElementById('btn-start')?.click();
             }
             ai.startBaseline();
         };
     }
 });
+
+// ─── Ambulance Dispatch ────────────────────────────────────────────────────
+function dispatchAmbulance(direction) {
+    if (ambulanceActive) clearAmbulance();
+
+    ambulanceActive = { direction, startTime: Date.now() };
+
+    // UI: show badge, active buttons, clear button, timer
+    const badge     = document.getElementById('amb-status-badge');
+    const clearBtn  = document.getElementById('btn-amb-clear');
+    const timerEl   = document.getElementById('amb-timer');
+    const btnNS     = document.getElementById('btn-amb-ns');
+    const btnEW     = document.getElementById('btn-amb-ew');
+
+    if (badge)    badge.style.display    = 'inline-block';
+    if (clearBtn) clearBtn.style.display = 'inline-block';
+    if (btnNS)    btnNS.classList.toggle('active-amb', direction === 'NS');
+    if (btnEW)    btnEW.classList.toggle('active-amb', direction === 'EW');
+
+    // Countdown timer update
+    const DURATION_S = 12;
+    const timerInterval = setInterval(() => {
+        if (!ambulanceActive) { clearInterval(timerInterval); return; }
+        const elapsed = (Date.now() - ambulanceActive.startTime) / 1000;
+        const left    = Math.max(0, DURATION_S - elapsed);
+        if (timerEl) timerEl.innerText = left > 0 ? `Auto-clear: ${left.toFixed(0)}s` : '';
+    }, 300);
+
+    // Spawn an ambulance vehicle on the canvas
+    if (typeof spawnAmbulance === 'function') {
+        spawnAmbulance(direction === 'NS' ? 'N' : 'E');
+    }
+
+    // Force AI mode ON so ambulance override is applied
+    if (!isAIEnabled) {
+        isAIEnabled = true;
+        const btnAI = document.getElementById('btn-ai');
+        if (btnAI) { btnAI.classList.add('active'); btnAI.innerText = '🤖 AI: ON'; }
+        document.getElementById('ai-mode-badge')?.setAttribute('innerText', 'AI');
+    }
+
+    ai.log(`🚑 AMBULANCE DISPATCHED → ${direction} corridor! Immediate green priority.`);
+
+    // Auto-clear after DURATION_S seconds
+    if (ambulanceClearTimer) clearTimeout(ambulanceClearTimer);
+    ambulanceClearTimer = setTimeout(() => {
+        clearInterval(timerInterval);
+        clearAmbulance();
+        ai.log(`✅ Ambulance cleared. Normal AI control resuming.`);
+    }, DURATION_S * 1000);
+}
+
+function clearAmbulance() {
+    ambulanceActive    = null;
+    if (ambulanceClearTimer) { clearTimeout(ambulanceClearTimer); ambulanceClearTimer = null; }
+
+    const badge    = document.getElementById('amb-status-badge');
+    const clearBtn = document.getElementById('btn-amb-clear');
+    const timerEl  = document.getElementById('amb-timer');
+    const btnNS    = document.getElementById('btn-amb-ns');
+    const btnEW    = document.getElementById('btn-amb-ew');
+
+    if (badge)    badge.style.display    = 'none';
+    if (clearBtn) clearBtn.style.display = 'none';
+    if (timerEl)  timerEl.innerText      = '';
+    if (btnNS)    btnNS.classList.remove('active-amb');
+    if (btnEW)    btnEW.classList.remove('active-amb');
+}
+
+// ─── Ambulance Button Bindings ────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    const btnAmbNS = document.getElementById('btn-amb-ns');
+    const btnAmbEW = document.getElementById('btn-amb-ew');
+    const btnClear = document.getElementById('btn-amb-clear');
+
+    if (btnAmbNS) btnAmbNS.onclick = () => dispatchAmbulance('NS');
+    if (btnAmbEW) btnAmbEW.onclick = () => dispatchAmbulance('EW');
+    if (btnClear) btnClear.onclick = () => {
+        clearAmbulance();
+        ai.log('✕ Ambulance manually cleared.');
+    };
+});
+

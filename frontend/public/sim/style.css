@@ -1,6 +1,3 @@
-/* ============================
-   Reset & Base
-   ============================ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
@@ -1013,6 +1010,212 @@ input[type="range"]::-webkit-slider-thumb {
 .btn-outline:hover:not(:disabled) {
     background: var(--accent-glow);
     border-color: var(--accent);
+}
+
+/* ============================
+   Backend Status Panel
+   ============================ */
+.backend-status-panel {
+    background: rgba(59, 130, 246, 0.04);
+    border-color: rgba(59, 130, 246, 0.2);
+}
+
+.backend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    margin-left: 4px;
+    flex-shrink: 0;
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.backend-dot.connected {
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.backend-dot.disconnected {
+    background: var(--red);
+    box-shadow: 0 0 6px var(--red-glow);
+}
+
+.backend-meta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+
+.backend-meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 7px 10px;
+    background: var(--bg-2);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+}
+
+.bm-label {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.bm-val {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+/* ============================
+   ML Model Output Panel
+   ============================ */
+.ml-output-panel {
+    background: rgba(168, 85, 247, 0.04);
+    border-color: rgba(168, 85, 247, 0.2);
+}
+
+.ml-output-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ml-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 5px 8px;
+    background: var(--bg-2);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+}
+
+.ml-row.ml-explanation {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 7px 10px;
+}
+
+.ml-label {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.ml-val {
+    font-size: 11px;
+    font-weight: 700;
+    color: #c084fc;
+    text-align: right;
+}
+
+.ml-explanation-text {
+    font-size: 9.5px;
+    color: var(--text-secondary);
+    font-style: italic;
+    line-height: 1.5;
+}
+
+/* ============================
+   Ambulance Priority Panel
+   ============================ */
+.ambulance-panel {
+    background: rgba(239, 68, 68, 0.05);
+    border-color: rgba(239, 68, 68, 0.2);
+}
+
+.amb-info {
+    font-size: 9.5px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    line-height: 1.5;
+}
+
+.amb-btn-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.btn-ambulance {
+    padding: 9px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(239, 68, 68, 0.5);
+    background: rgba(239, 68, 68, 0.12);
+    color: #fca5a5;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    cursor: pointer;
+    transition: all var(--transition);
+    text-align: center;
+}
+
+.btn-ambulance:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: var(--red);
+    color: #fff;
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.35);
+    transform: translateY(-1px);
+}
+
+.btn-ambulance.active-amb {
+    background: var(--red);
+    color: #fff;
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+    animation: amb-pulse 1s ease-in-out infinite;
+}
+
+@keyframes amb-pulse {
+    0%, 100% { box-shadow: 0 0 16px rgba(239, 68, 68, 0.45); }
+    50% { box-shadow: 0 0 30px rgba(239, 68, 68, 0.8); }
+}
+
+.amb-status-badge {
+    margin-left: auto;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--red);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    animation: amb-badge-pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes amb-badge-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.amb-clear-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-sm {
+    padding: 4px 10px;
+    font-size: 10px;
+}
+
+.amb-timer {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--red);
+    font-weight: 700;
 }
 
 /* ============================

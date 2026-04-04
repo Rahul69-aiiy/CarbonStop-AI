@@ -72,19 +72,22 @@ class TrafficState(BaseModel):
     Input payload representing the current state of the intersection.
 
     Fields:
-        queue_NS: Number of vehicles queued in the North-South lane (0–20).
-        queue_EW: Number of vehicles queued in the East-West lane (0–20).
-        red_NS:   Seconds the North-South lane has been red (0–60).
-        red_EW:   Seconds the East-West lane has been red (0–60).
-        phase:    Current green phase — 0 = NS green, 1 = EW green.
-        hour:     Hour of day (0–23) used to compute carbon intensity.
+        queue_NS:            Number of vehicles queued in the North-South lane (0–20).
+        queue_EW:            Number of vehicles queued in the East-West lane (0–20).
+        red_NS:              Seconds the North-South lane has been red (0–60).
+        red_EW:              Seconds the East-West lane has been red (0–60).
+        phase:               Current green phase — 0 = NS green, 1 = EW green.
+        hour:                Hour of day (0–23) used to compute carbon intensity.
+        ambulance_direction: If set ('NS' or 'EW'), triggers an immediate priority override
+                             for that direction, bypassing the Q-table.
     """
-    queue_NS: int = Field(..., ge=0, le=20, description="NS queue length")
-    queue_EW: int = Field(..., ge=0, le=20, description="EW queue length")
-    red_NS:   int = Field(..., ge=0, le=60, description="NS red duration in seconds")
-    red_EW:   int = Field(..., ge=0, le=60, description="EW red duration in seconds")
-    phase:    int = Field(..., ge=0, le=1,  description="Current phase: 0=NS green, 1=EW green")
-    hour:     int = Field(..., ge=0, le=23, description="Hour of day (0–23)")
+    queue_NS:            int  = Field(..., ge=0, le=20, description="NS queue length")
+    queue_EW:            int  = Field(..., ge=0, le=20, description="EW queue length")
+    red_NS:              int  = Field(..., ge=0, le=60, description="NS red duration in seconds")
+    red_EW:              int  = Field(..., ge=0, le=60, description="EW red duration in seconds")
+    phase:               int  = Field(..., ge=0, le=1,  description="Current phase: 0=NS green, 1=EW green")
+    hour:                int  = Field(..., ge=0, le=23, description="Hour of day (0–23)")
+    ambulance_direction: str | None = Field(None, description="Ambulance direction override: 'NS' or 'EW'")
 
 
 class PredictResponse(BaseModel):
@@ -92,13 +95,15 @@ class PredictResponse(BaseModel):
     Response payload with the recommended action.
 
     Fields:
-        action:           One of 'keep_green', 'switch_phase', 'extend_green'.
-        carbon_intensity: Carbon intensity multiplier for this hour.
-        explanation:      Human-readable description of the chosen action.
+        action:              One of 'keep_green', 'switch_phase', 'extend_green'.
+        carbon_intensity:    Carbon intensity multiplier for this hour.
+        explanation:         Human-readable description of the chosen action.
+        ambulance_override:  True when an ambulance priority override was applied.
     """
-    action:           str
-    carbon_intensity: float
-    explanation:      str
+    action:              str
+    carbon_intensity:    float
+    explanation:         str
+    ambulance_override:  bool = False
 
 
 class SimulationStep(BaseModel):
@@ -161,6 +166,9 @@ def predict(traffic_state: TrafficState):
     discretised state. Falls back to 'keep_green' if the state has never been
     seen during training.
 
+    If ambulance_direction ('NS' or 'EW') is provided, the Q-table is bypassed
+    and switch_phase is immediately returned to give green to that direction.
+
     Example request body:
     ```json
     {
@@ -169,20 +177,40 @@ def predict(traffic_state: TrafficState):
       "red_NS": 20,
       "red_EW": 0,
       "phase": 0,
-      "hour": 20
+      "hour": 20,
+      "ambulance_direction": "NS"
     }
     ```
     """
     try:
-        state            = _build_state(traffic_state)
-        action_label     = agent.predict(state)
         carbon_intensity = get_carbon_intensity(traffic_state.hour)
-        explanation      = ACTION_EXPLANATIONS.get(action_label, "")
+
+        # ── Ambulance Priority Override ──────────────────────────────────────
+        if traffic_state.ambulance_direction in ("NS", "EW"):
+            amb_dir = traffic_state.ambulance_direction
+            # Determine whether a phase switch is needed
+            current_green = "NS" if traffic_state.phase == 0 else "EW"
+            if current_green == amb_dir:
+                action_label = "keep_green"
+            else:
+                action_label = "switch_phase"
+            return PredictResponse(
+                action             = action_label,
+                carbon_intensity   = carbon_intensity,
+                explanation        = f"🚑 AMBULANCE PRIORITY — immediate green for {amb_dir} corridor.",
+                ambulance_override = True,
+            )
+
+        # ── Normal Q-Table Lookup ────────────────────────────────────────────
+        state        = _build_state(traffic_state)
+        action_label = agent.predict(state)
+        explanation  = ACTION_EXPLANATIONS.get(action_label, "")
 
         return PredictResponse(
-            action           = action_label,
-            carbon_intensity = carbon_intensity,
-            explanation      = explanation,
+            action             = action_label,
+            carbon_intensity   = carbon_intensity,
+            explanation        = explanation,
+            ambulance_override = False,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -310,4 +338,24 @@ def info():
         "gamma"       : agent.gamma,
         "epsilon"     : round(agent.epsilon, 4),
         "q_table_size": len(agent.q_table),
+    }
+
+
+@app.get(
+    "/model-info",
+    summary = "Detailed model metadata for dashboard",
+    tags    = ["System"],
+)
+def model_info():
+    """Returns rich model metadata consumed by the frontend status and ML output panels."""
+    return {
+        "model"           : "Q-Learning",
+        "version"         : "1.1.0",
+        "actions"         : ["keep_green", "switch_phase", "extend_green"],
+        "alpha"           : agent.alpha,
+        "gamma"           : agent.gamma,
+        "epsilon"         : round(agent.epsilon, 4),
+        "q_table_size"    : len(agent.q_table),
+        "peak_threshold"  : 5.0,
+        "ambulance_support": True,
     }

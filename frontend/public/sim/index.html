@@ -22,7 +22,7 @@
                     </div>
                     <div class="logo-text">
                         <h1>AI Traffic Control</h1>
-                        <p class="subtitle">Adaptive 4-Way Intersection · Q-Learning · Fairness-Aware Priority</p>
+                        <p class="subtitle">Adaptive 4-Way Intersection · Q-Learning · Ambulance Priority · Fairness-Aware</p>
                     </div>
                 </div>
             </div>
@@ -84,6 +84,33 @@
             <!-- Right Sidebar -->
             <aside class="sidebar">
 
+                <!-- Backend Status Panel -->
+                <div class="panel backend-status-panel">
+                    <div class="panel-header">
+                        <span class="panel-icon">🔌</span> Backend Status
+                        <span class="backend-dot" id="backend-dot"></span>
+                        <span class="panel-badge" id="backend-status-label">CHECKING...</span>
+                    </div>
+                    <div class="backend-meta-grid">
+                        <div class="backend-meta-item">
+                            <span class="bm-label">Ping</span>
+                            <span class="bm-val mono" id="backend-latency">—</span>
+                        </div>
+                        <div class="backend-meta-item">
+                            <span class="bm-label">Model</span>
+                            <span class="bm-val mono" id="backend-model">—</span>
+                        </div>
+                        <div class="backend-meta-item">
+                            <span class="bm-label">Q-States</span>
+                            <span class="bm-val mono" id="backend-states">—</span>
+                        </div>
+                        <div class="backend-meta-item">
+                            <span class="bm-label">Version</span>
+                            <span class="bm-val mono" id="backend-version">—</span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Live Metrics -->
                 <div class="panel">
                     <div class="panel-header">
@@ -129,6 +156,31 @@
                             <span class="em-val" id="em-nox">0.00</span>
                             <span class="em-unit">mg</span>
                             <span class="em-lbl">NOx</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ML Model Output Panel -->
+                <div class="panel ml-output-panel">
+                    <div class="panel-header">
+                        <span class="panel-icon">🧪</span> ML Model Output
+                        <span class="panel-badge" id="ml-action-badge">IDLE</span>
+                    </div>
+                    <div class="ml-output-grid">
+                        <div class="ml-row">
+                            <span class="ml-label">Action</span>
+                            <span class="ml-val" id="ml-action">—</span>
+                        </div>
+                        <div class="ml-row">
+                            <span class="ml-label">Carbon ×</span>
+                            <span class="ml-val mono" id="ml-carbon">—</span>
+                        </div>
+                        <div class="ml-row">
+                            <span class="ml-label">Peak CO₂</span>
+                            <span class="ml-val mono" id="ml-peak">— kg</span>
+                        </div>
+                        <div class="ml-row ml-explanation">
+                            <span class="ml-explanation-text" id="ml-explanation">Awaiting ML decision...</span>
                         </div>
                     </div>
                 </div>
@@ -308,6 +360,23 @@
                             <span class="scale-val" id="scale-daily">— tons</span>
                             <span class="scale-lbl">CO₂ saved/day</span>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Ambulance Priority Panel -->
+                <div class="panel ambulance-panel">
+                    <div class="panel-header">
+                        <span class="panel-icon">🚑</span> Ambulance Priority
+                        <span class="amb-status-badge" id="amb-status-badge" style="display:none;">🚨 ACTIVE</span>
+                    </div>
+                    <div class="amb-info">Override AI — give immediate green to ambulance corridor</div>
+                    <div class="amb-btn-row">
+                        <button id="btn-amb-ns" class="btn btn-ambulance">🚑 Dispatch NS</button>
+                        <button id="btn-amb-ew" class="btn btn-ambulance">🚑 Dispatch EW</button>
+                    </div>
+                    <div class="amb-clear-row">
+                        <button id="btn-amb-clear" class="btn btn-ghost btn-sm" style="display:none;">✕ Clear Ambulance</button>
+                        <span class="amb-timer" id="amb-timer"></span>
                     </div>
                 </div>
 
