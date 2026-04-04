@@ -40,7 +40,7 @@ def compute_reward(
     red_EW: int,
     carbon_intensity: float,
     action: int,
-    prev_action: int,
+    prev_action: int | None,
 ) -> float:
     """
     Reward function balancing four objectives:
