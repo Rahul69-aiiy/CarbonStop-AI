@@ -156,14 +156,17 @@ class Vehicle {
         if (closestDist < 50) canGo = false;
 
         // Speed calculation
+        // Ambulances obey signals and queue behind cars — they just travel faster when clear.
         const maxSpd = this.isAmbulance ? MAX_SPEED * 1.5 : MAX_SPEED;
-        if (!canGo && !this.isAmbulance) {
+        if (!canGo) {
+            // Decelerate — applies to ALL vehicles including ambulances (stop at red / behind cars)
             this.speed = Math.max(0, this.speed - DECEL * timeScale);
             if (this.speed === 0 && !this.waiting) {
                 this.waiting = true;
                 this.waitStart = Date.now();
             }
         } else {
+            // Accelerate up to max speed (ambulances have a higher cap)
             this.speed = Math.min(maxSpd, this.speed + ACCEL * timeScale);
             if (this.waiting) {
                 this.totalWait += (Date.now() - this.waitStart) / 1000;
