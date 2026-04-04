@@ -942,3 +942,33 @@ function spawnAmbulance(dir) {
   v.speed = MAX_SPEED * 1.4;
   vehicles.push(v);
 }
+// ─── Manual Signal Control Buttons ───
+
+// NS Button
+document.getElementById("btn-ns").addEventListener("click", () => {
+  if (signals.NS === SIGNAL.GREEN) {
+    // Force RED
+    signals.NS = SIGNAL.RED;
+    signals.EW = SIGNAL.GREEN;
+  } else {
+    // Force GREEN
+    signals.NS = SIGNAL.GREEN;
+    signals.EW = SIGNAL.RED;
+  }
+
+  updateSignalLights();
+});
+// EW Button
+document.getElementById("btn-ew").addEventListener("click", () => {
+  if (signals.EW === SIGNAL.GREEN) {
+    // Force RED
+    signals.EW = SIGNAL.RED;
+    signals.NS = SIGNAL.GREEN;
+  } else {
+    // Force GREEN
+    signals.EW = SIGNAL.GREEN;
+    signals.NS = SIGNAL.RED;
+  }
+
+  updateSignalLights();
+});v
