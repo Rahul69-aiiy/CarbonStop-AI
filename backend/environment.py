@@ -1,5 +1,4 @@
 import random
-
 # Basic settings
 MAX_QUEUE = 20
 EMISSION_FACTOR = 0.21
