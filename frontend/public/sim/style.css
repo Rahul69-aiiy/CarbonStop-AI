@@ -269,6 +269,7 @@ body {
 
 input[type="range"] {
     -webkit-appearance: none;
+    appearance: none;
     width: 90px;
     height: 4px;
     border-radius: 2px;

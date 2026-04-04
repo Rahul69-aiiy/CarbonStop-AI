@@ -73,6 +73,8 @@ class Vehicle {
         this.totalWait = 0;
         this.color = CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
         this.speed = Math.random() * 0.5 + 1.6;
+        this.isAmbulance = false;
+        this.sirenFrame  = 0;
         this.setupCoordinates();
         
         this.hasTurned = false;
@@ -154,14 +156,15 @@ class Vehicle {
         if (closestDist < 50) canGo = false;
 
         // Speed calculation
-        if (!canGo) {
+        const maxSpd = this.isAmbulance ? MAX_SPEED * 1.5 : MAX_SPEED;
+        if (!canGo && !this.isAmbulance) {
             this.speed = Math.max(0, this.speed - DECEL * timeScale);
             if (this.speed === 0 && !this.waiting) {
                 this.waiting = true;
                 this.waitStart = Date.now();
             }
         } else {
-            this.speed = Math.min(MAX_SPEED, this.speed + ACCEL * timeScale);
+            this.speed = Math.min(maxSpd, this.speed + ACCEL * timeScale);
             if (this.waiting) {
                 this.totalWait += (Date.now() - this.waitStart) / 1000;
                 metrics.totalWait += this.totalWait;
@@ -184,6 +187,8 @@ class Vehicle {
     }
 
     draw() {
+        if (this.isAmbulance) { this.drawAmbulance(); return; }
+
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(this.angle * Math.PI / 180);
@@ -228,6 +233,48 @@ class Vehicle {
             ctx.shadowBlur = 0;
         }
 
+        ctx.restore();
+    }
+
+    drawAmbulance() {
+        this.sirenFrame++;
+        // Alternate siren colour every 15 frames
+        const sirenRed  = Math.floor(this.sirenFrame / 15) % 2 === 0;
+        const sirenCol  = sirenRed ? '#ef4444' : '#3b82f6';
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.angle * Math.PI / 180);
+
+        // Siren glow
+        ctx.shadowColor = sirenCol;
+        ctx.shadowBlur  = 20;
+
+        // White body (larger than normal car)
+        const W = VEHICLE_WIDTH + 6, L = VEHICLE_LENGTH + 8;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.roundRect(-L / 2, -W / 2, L, W, 5);
+        ctx.fill();
+
+        // Red stripe
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(-L / 2, -4, L, 8);
+
+        // Red cross
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(-5, -W / 2 + 3, 10, W - 6);
+        ctx.fillRect(-L / 4, -4, L / 2, 8);
+
+        // Siren lights (top)
+        ctx.fillStyle = sirenCol;
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(-8, -W / 2 - 3, 4, 0, Math.PI * 2);
+        ctx.arc( 8, -W / 2 - 3, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
         ctx.restore();
     }
 }
@@ -671,3 +718,15 @@ document.querySelectorAll('.dir-btn').forEach(btn => {
 // Initialize
 updateSignalLights();
 loop();
+
+// --- Ambulance Spawn (called from ai_controller.js) ---
+function spawnAmbulance(dir) {
+    const origins = {
+        'N': 'N', 'S': 'S', 'E': 'E', 'W': 'W'
+    };
+    const origin = origins[dir] || 'N';
+    const v = new Vehicle(origin, 0);
+    v.isAmbulance = true;
+    v.speed = MAX_SPEED * 1.4;
+    vehicles.push(v);
+}
