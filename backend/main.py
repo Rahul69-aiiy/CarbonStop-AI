@@ -116,10 +116,12 @@ class SimulationStep(BaseModel):
 
 class SimulateResponse(BaseModel):
     """Full simulation trajectory response."""
-    steps:            List[SimulationStep]
-    total_co2_kg:     float
-    avg_wait_seconds: float
-    total_reward:     float
+    steps:              List[SimulationStep]
+    total_co2_kg:       float
+    avg_wait_seconds:   float
+    total_reward:       float
+    peak_emission:      float
+    peak_emission_step: int
 
 
 def _build_state(ts: TrafficState) -> tuple:
@@ -230,6 +232,8 @@ def simulate(
         total_co2     = 0.0
         total_wait    = 0.0
         total_reward  = 0.0
+        peak_emission      = 0.0
+        peak_emission_step = 0
 
         state = env._get_state()
 
@@ -249,6 +253,11 @@ def simulate(
             total_wait   += wait_step
             total_reward += reward
 
+            # Track peak emission across simulation steps
+            if co2_step > peak_emission:
+                peak_emission      = co2_step
+                peak_emission_step = i + 1
+
             trajectory.append(SimulationStep(
                 step     = i + 1,
                 action   = action_label,
@@ -266,10 +275,12 @@ def simulate(
                 break
 
         return SimulateResponse(
-            steps            = trajectory,
-            total_co2_kg     = round(total_co2, 4),
-            avg_wait_seconds = round(total_wait / len(trajectory), 4),
-            total_reward     = round(total_reward, 4),
+            steps              = trajectory,
+            total_co2_kg       = round(total_co2, 4),
+            avg_wait_seconds   = round(total_wait / len(trajectory), 4),
+            total_reward       = round(total_reward, 4),
+            peak_emission      = round(peak_emission, 4),
+            peak_emission_step = peak_emission_step,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

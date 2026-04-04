@@ -7,6 +7,7 @@ MAX_RED_TIME     = 20        # seconds before an episode terminates early
 ARRIVAL_RATE_NS  = 0.3       # probability a vehicle arrives in NS per step
 ARRIVAL_RATE_EW  = 0.3
 VEHICLES_PASS    = 3         # vehicles cleared per green step
+PEAK_THRESHOLD   = 5.0       # emission spike threshold (kg CO2)
 
 ACTIONS = {
     0: "keep_green",    # keep the current green phase running
@@ -63,12 +64,17 @@ def compute_reward(
     # Bonus when at least one lane has fully cleared
     clear_bonus = 2 if (queue_NS == 0 or queue_EW == 0) else 0
 
+    # Extra penalty when instantaneous emission spikes above threshold
+    emission = estimate_emission(queue_NS + queue_EW, carbon_intensity)
+    peak_penalty = -2 if emission > PEAK_THRESHOLD else 0
+
     return (
         waiting_penalty
         + 0.5 * imbalance_penalty
         + switch_penalty
         + carbon_penalty
         + clear_bonus
+        + peak_penalty
     )
 
 
@@ -95,6 +101,8 @@ class TrafficEnv:
         self.phase     = 0    # 0 = NS green, 1 = EW green
         self.timestep  = 0
         self.prev_action = None
+        # highest emission recorded in the current episode
+        self.peak_emission = 0.0
 
     def reset(self) -> tuple:
         """Resets the environment to its initial state with small random queues."""
@@ -107,6 +115,7 @@ class TrafficEnv:
         self.phase       = 0
         self.timestep    = 0
         self.prev_action = None
+        self.peak_emission = 0.0
         return self._get_state()
 
     def _get_state(self) -> tuple:
@@ -168,13 +177,21 @@ class TrafficEnv:
         Order of operations:
             1. Apply action (signal logic + queue clearance)
             2. Generate new vehicle arrivals
-            3. Compute reward
-            4. Return (next_state, reward, done)
+            3. Track instantaneous emission and update episode peak
+            4. Compute reward
+            5. Return (next_state, reward, done)
 
         done is True when any lane has been red for MAX_RED_TIME seconds.
         """
         self._apply_action(action)
         self._generate_arrivals()
+
+        # Track per-step emission and update the episode peak
+        emission = estimate_emission(
+            self.queue_NS + self.queue_EW,
+            self.carbon_intensity
+        )
+        self.peak_emission = max(self.peak_emission, emission)
 
         reward = compute_reward(
             self.queue_NS,
@@ -203,4 +220,5 @@ class TrafficEnv:
             "phase"           : "NS_green" if self.phase == 0 else "EW_green",
             "carbon_intensity": self.carbon_intensity,
             "hour"            : self.hour,
+            "peak_emission"   : self.peak_emission,
         }

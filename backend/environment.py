@@ -12,6 +12,7 @@ import random
 MAX_QUEUE = 20        # max cars allowed in lane
 EMISSION_FACTOR = 0.21  # rough CO2 per idle car
 MAX_RED_TIME = 60     # stop if red stays too long
+PEAK_THRESHOLD = 5.0  # emission spike threshold (kg CO2)
 
 # car arrival probability
 ARRIVAL_RATE_NS = 0.3
@@ -63,8 +64,11 @@ def compute_reward(
         carbon_intensity
     )
 
+    # extra penalty for emission spikes above the peak threshold
+    peak_penalty = -2 if emission > PEAK_THRESHOLD else 0
+
     # negative reward because we minimize both
-    return -(waiting_time + emission)
+    return -(waiting_time + emission) + peak_penalty
 
 
 class TrafficEnv:
@@ -87,6 +91,9 @@ class TrafficEnv:
 
         self.timestep = 0
 
+        # highest emission recorded in the current episode
+        self.peak_emission = 0.0
+
 
     def reset(self):
 
@@ -102,6 +109,7 @@ class TrafficEnv:
 
         self.phase = 0
         self.timestep = 0
+        self.peak_emission = 0.0
 
         return self._get_state()
 
@@ -204,6 +212,13 @@ class TrafficEnv:
         # new cars arrive
         self._generate_arrivals()
 
+        # track emission for this step and update episode peak
+        emission = estimate_emission(
+            self.queue_NS + self.queue_EW,
+            self.carbon_intensity
+        )
+        self.peak_emission = max(self.peak_emission, emission)
+
         # compute reward
         reward = compute_reward(
             self.queue_NS,
@@ -243,4 +258,5 @@ class TrafficEnv:
                 else "EW_green",
             "carbon_intensity": self.carbon_intensity,
             "hour": self.hour,
+            "peak_emission": self.peak_emission,
         }
