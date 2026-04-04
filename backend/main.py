@@ -1,19 +1,21 @@
 """
 main.py
-
+-------
 FastAPI backend for the Climate-Aware Traffic Signal Optimizer.
 
 Endpoints:
-    POST /predict   — Accepts current intersection state, returns best action.
-    POST /simulate  — Runs a multi-step simulation and returns full trajectory.
+    POST /predict   — Returns best action. Includes hard imbalance override.
+    POST /simulate  — Runs multi-step simulation, returns full trajectory.
     GET  /health    — Health check.
-    GET  /info      — Model metadata and Q-table size.
+    GET  /info      — Model metadata.
+    GET  /model-info — Rich metadata for dashboard.
 
-The Q-Learning agent loads from a pre-trained Q-table (q_table.json).
-If no saved table is found, training runs automatically on startup.
-
-Run with:
-    uvicorn main:app --reload --port 8000
+Fixes:
+  - All imports from 'environment' only (environment1.py deleted)
+  - /simulate no longer does mid-function imports from old environment
+  - Hard imbalance override: if one lane has 3x+ more cars than the other,
+    switch_phase is returned immediately without consulting the Q-table.
+    This is a safety net while the retrained model learns the new reward.
 """
 
 import os
@@ -24,103 +26,79 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from environment1 import TrafficEnv, get_carbon_intensity, ACTIONS
-from q_learning  import QLearningAgent, train, QTABLE_PATH
+# FIX: single import source — environment only
+from environment import (
+    TrafficEnv, get_carbon_intensity, ACTIONS,
+    estimate_emission, WRONG_PHASE_GREEN_MAX, WRONG_PHASE_RED_MIN
+)
+from q_learning import QLearningAgent, train, QTABLE_PATH
 
-# Module-level agent singleton — read-only at inference time
 agent = QLearningAgent()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Runs once when the server starts.
-      1. Try to load a pre-trained Q-table from disk.
-      2. If not found, run training automatically and save the result.
-    """
     global agent
     if os.path.exists(QTABLE_PATH):
         agent.load(QTABLE_PATH)
         print(f"[API] Loaded pre-trained Q-table ({len(agent.q_table)} states).")
     else:
-        print("[API] No saved Q-table found — running training now...")
+        print("[API] No saved Q-table — training now (takes ~1 min)...")
         agent = train()
-        print(f"[API] Training complete. Q-table has {len(agent.q_table)} states.")
+        print(f"[API] Training complete. {len(agent.q_table)} states.")
     yield
+
+
 app = FastAPI(
     title       = "Climate-Aware Traffic Signal Optimizer",
-    description = (
-        "A Q-Learning-based reinforcement learning API that dynamically "
-        "optimises traffic signal timing to minimise CO₂ emissions and "
-        "reduce vehicle waiting time at a 4-way intersection."
-    ),
-    version     = "1.1.0",
+    description = "Q-Learning API for traffic signal optimization.",
+    version     = "1.2.0",
     lifespan    = lifespan,
 )
 
-# Allow cross-origin requests so the JavaScript frontend can call this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins     = ["*"],   # Tighten in production
+    allow_origins     = ["*"],
     allow_credentials = True,
     allow_methods     = ["*"],
     allow_headers     = ["*"],
 )
 
 
+# ---------------------------------------------------------------------------
+# Schemas
+# ---------------------------------------------------------------------------
 class TrafficState(BaseModel):
-    """
-    Input payload representing the current state of the intersection.
-
-    Fields:
-        queue_NS:            Number of vehicles queued in the North-South lane (0–20).
-        queue_EW:            Number of vehicles queued in the East-West lane (0–20).
-        red_NS:              Seconds the North-South lane has been red (0–60).
-        red_EW:              Seconds the East-West lane has been red (0–60).
-        phase:               Current green phase — 0 = NS green, 1 = EW green.
-        hour:                Hour of day (0–23) used to compute carbon intensity.
-        ambulance_direction: If set ('NS' or 'EW'), triggers an immediate priority override
-                             for that direction, bypassing the Q-table.
-    """
-    queue_NS:            int  = Field(..., ge=0, le=20, description="NS queue length")
-    queue_EW:            int  = Field(..., ge=0, le=20, description="EW queue length")
-    red_NS:              int  = Field(..., ge=0, le=60, description="NS red duration in seconds")
-    red_EW:              int  = Field(..., ge=0, le=60, description="EW red duration in seconds")
-    phase:               int  = Field(..., ge=0, le=1,  description="Current phase: 0=NS green, 1=EW green")
-    hour:                int  = Field(..., ge=0, le=23, description="Hour of day (0–23)")
-    ambulance_direction: str | None = Field(None, description="Ambulance direction override: 'NS' or 'EW'")
+    queue_NS:            int      = Field(..., ge=0, le=20)
+    queue_EW:            int      = Field(..., ge=0, le=20)
+    red_NS:              int      = Field(..., ge=0, le=60)
+    red_EW:              int      = Field(..., ge=0, le=60)
+    phase:               int      = Field(..., ge=0, le=1)
+    hour:                int      = Field(..., ge=0, le=23)
+    ambulance_direction: str | None = Field(None)
 
 
 class PredictResponse(BaseModel):
-    """
-    Response payload with the recommended action.
-
-    Fields:
-        action:              One of 'keep_green', 'switch_phase', 'extend_green'.
-        carbon_intensity:    Carbon intensity multiplier for this hour.
-        explanation:         Human-readable description of the chosen action.
-        ambulance_override:  True when an ambulance priority override was applied.
-    """
-    action:              str
-    carbon_intensity:    float
-    explanation:         str
-    ambulance_override:  bool = False
+    action:             str
+    carbon_intensity:   float
+    explanation:        str
+    ambulance_override: bool = False
+    imbalance_override: bool = False
 
 
 class SimulationStep(BaseModel):
-    """A single timestep snapshot from a simulation run."""
-    step:             int
-    action:           str
-    queue_NS:         int
-    queue_EW:         int
-    red_NS:           int
-    red_EW:           int
-    phase:            str
-    reward:           float
-    co2_kg:           float
+    step:     int
+    action:   str
+    queue_NS: int
+    queue_EW: int
+    red_NS:   int
+    red_EW:   int
+    phase:    str
+    reward:   float
+    co2_kg:   float
 
 
 class SimulateResponse(BaseModel):
-    """Full simulation trajectory response."""
     steps:              List[SimulationStep]
     total_co2_kg:       float
     avg_wait_seconds:   float
@@ -129,20 +107,28 @@ class SimulateResponse(BaseModel):
     peak_emission_step: int
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 def _build_state(ts: TrafficState) -> tuple:
-    """
-    Converts the raw API input into the same discretised state tuple
-    used by the Q-table during training.
-
-    Bins mirror those in TrafficEnv._get_state().
-    """
-    q_NS_bin   = min(ts.queue_NS  // 5, 4)
-    q_EW_bin   = min(ts.queue_EW  // 5, 4)
-    r_NS_bin   = min(ts.red_NS    // 15, 3)
-    r_EW_bin   = min(ts.red_EW    // 15, 3)
-    carbon     = get_carbon_intensity(ts.hour)
-    carbon_bin = 1 if carbon >= 1.5 else 0
+    q_NS_bin   = min(ts.queue_NS // 5, 4)
+    q_EW_bin   = min(ts.queue_EW // 5, 4)
+    r_NS_bin   = min(ts.red_NS   // 15, 3)
+    r_EW_bin   = min(ts.red_EW   // 15, 3)
+    carbon_bin = 1 if get_carbon_intensity(ts.hour) >= 1.5 else 0
     return (q_NS_bin, q_EW_bin, r_NS_bin, r_EW_bin, ts.phase, carbon_bin)
+
+
+def _check_hard_imbalance(ts: TrafficState) -> bool:
+    """
+    Returns True when the green lane has very few cars but the red lane
+    is heavily loaded — regardless of what the Q-table says, we should switch.
+
+    Thresholds: green ≤ WRONG_PHASE_GREEN_MAX and red ≥ WRONG_PHASE_RED_MIN
+    """
+    green_queue = ts.queue_NS if ts.phase == 0 else ts.queue_EW
+    red_queue   = ts.queue_EW if ts.phase == 0 else ts.queue_NS
+    return green_queue <= WRONG_PHASE_GREEN_MAX and red_queue >= WRONG_PHASE_RED_MIN
 
 
 ACTION_EXPLANATIONS = {
@@ -152,48 +138,28 @@ ACTION_EXPLANATIONS = {
 }
 
 
-@app.post(
-    "/predict",
-    response_model = PredictResponse,
-    summary        = "Get the optimal traffic signal action",
-    tags           = ["Signal Control"],
-)
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+@app.post("/predict", response_model=PredictResponse, tags=["Signal Control"])
 def predict(traffic_state: TrafficState):
     """
-    Given the current intersection state, returns the recommended signal action.
+    Returns the optimal signal action.
 
-    The agent uses the trained Q-table to look up the optimal action for the
-    discretised state. Falls back to 'keep_green' if the state has never been
-    seen during training.
-
-    If ambulance_direction ('NS' or 'EW') is provided, the Q-table is bypassed
-    and switch_phase is immediately returned to give green to that direction.
-
-    Example request body:
-    ```json
-    {
-      "queue_NS": 8,
-      "queue_EW": 3,
-      "red_NS": 20,
-      "red_EW": 0,
-      "phase": 0,
-      "hour": 20,
-      "ambulance_direction": "NS"
-    }
-    ```
+    Priority order:
+      1. Ambulance override — immediate green for emergency vehicle direction
+      2. Hard imbalance override — switch when green lane ≤ 5 cars and
+         red lane ≥ 10 cars (safety net while model learns new reward)
+      3. Q-table lookup — normal AI decision
     """
     try:
         carbon_intensity = get_carbon_intensity(traffic_state.hour)
 
-        # ── Ambulance Priority Override ──────────────────────────────────────
+        # 1. Ambulance override
         if traffic_state.ambulance_direction in ("NS", "EW"):
-            amb_dir = traffic_state.ambulance_direction
-            # Determine whether a phase switch is needed
+            amb_dir      = traffic_state.ambulance_direction
             current_green = "NS" if traffic_state.phase == 0 else "EW"
-            if current_green == amb_dir:
-                action_label = "keep_green"
-            else:
-                action_label = "switch_phase"
+            action_label  = "keep_green" if current_green == amb_dir else "switch_phase"
             return PredictResponse(
                 action             = action_label,
                 carbon_intensity   = carbon_intensity,
@@ -201,65 +167,55 @@ def predict(traffic_state: TrafficState):
                 ambulance_override = True,
             )
 
-        # ── Normal Q-Table Lookup ────────────────────────────────────────────
+        # 2. Hard imbalance override
+        if _check_hard_imbalance(traffic_state):
+            green_q = traffic_state.queue_NS if traffic_state.phase == 0 else traffic_state.queue_EW
+            red_q   = traffic_state.queue_EW if traffic_state.phase == 0 else traffic_state.queue_NS
+            return PredictResponse(
+                action             = "switch_phase",
+                carbon_intensity   = carbon_intensity,
+                explanation        = (
+                    f"⚠️ IMBALANCE OVERRIDE — green lane has {green_q} cars "
+                    f"but red lane has {red_q}. Switching to relieve congestion."
+                ),
+                imbalance_override = True,
+            )
+
+        # 3. Normal Q-table lookup
         state        = _build_state(traffic_state)
         action_label = agent.predict(state)
-        explanation  = ACTION_EXPLANATIONS.get(action_label, "")
 
         return PredictResponse(
-            action             = action_label,
-            carbon_intensity   = carbon_intensity,
-            explanation        = explanation,
-            ambulance_override = False,
+            action           = action_label,
+            carbon_intensity = carbon_intensity,
+            explanation      = ACTION_EXPLANATIONS.get(action_label, ""),
         )
+
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post(
-    "/simulate",
-    response_model = SimulateResponse,
-    summary        = "Run a multi-step AI simulation",
-    tags           = ["Signal Control"],
-)
+@app.post("/simulate", response_model=SimulateResponse, tags=["Signal Control"])
 def simulate(
     initial_state: TrafficState,
-    steps: int = Query(default=50, ge=1, le=500, description="Number of timesteps to simulate"),
+    steps: int = Query(default=50, ge=1, le=500),
 ):
     """
-    Runs the trained agent on the environment for the requested number of steps,
-    starting from the provided initial state.
-
-    Returns the full trajectory, total CO₂ produced, average waiting time,
-    and cumulative reward — useful for dashboard visualisations.
-
-    Example request body:
-    ```json
-    {
-      "queue_NS": 5,
-      "queue_EW": 10,
-      "red_NS": 0,
-      "red_EW": 30,
-      "phase": 1,
-      "hour": 8
-    }
-    ```
+    Runs the agent forward N steps from the given initial state.
+    Returns the full trajectory with CO₂, wait times, and rewards.
     """
     try:
-        from environment import estimate_emission, EMISSION_FACTOR
+        env          = TrafficEnv(hour=initial_state.hour)
+        env.queue_NS = initial_state.queue_NS
+        env.queue_EW = initial_state.queue_EW
+        env.red_NS   = initial_state.red_NS
+        env.red_EW   = initial_state.red_EW
+        env.phase    = initial_state.phase
 
-        env           = TrafficEnv(hour=initial_state.hour)
-        # Seed environment with the provided initial state
-        env.queue_NS  = initial_state.queue_NS
-        env.queue_EW  = initial_state.queue_EW
-        env.red_NS    = initial_state.red_NS
-        env.red_EW    = initial_state.red_EW
-        env.phase     = initial_state.phase
-
-        trajectory    = []
-        total_co2     = 0.0
-        total_wait    = 0.0
-        total_reward  = 0.0
+        trajectory         = []
+        total_co2          = 0.0
+        total_wait         = 0.0
+        total_reward       = 0.0
         peak_emission      = 0.0
         peak_emission_step = 0
 
@@ -271,17 +227,17 @@ def simulate(
 
             next_state, reward, done = env.step(action_idx)
 
-            co2_step   = estimate_emission(
+            # FIX: estimate_emission imported at top — no mid-function import
+            co2_step  = estimate_emission(
                 float(env.queue_NS + env.queue_EW),
                 env.carbon_intensity,
             )
-            wait_step  = float(env.red_NS + env.red_EW)
+            wait_step = float(env.red_NS + env.red_EW)
 
             total_co2    += co2_step
             total_wait   += wait_step
             total_reward += reward
 
-            # Track peak emission across simulation steps
             if co2_step > peak_emission:
                 peak_emission      = co2_step
                 peak_emission_step = i + 1
@@ -302,35 +258,27 @@ def simulate(
             if done:
                 break
 
+        steps_run = len(trajectory)
         return SimulateResponse(
             steps              = trajectory,
             total_co2_kg       = round(total_co2, 4),
-            avg_wait_seconds   = round(total_wait / len(trajectory), 4),
+            avg_wait_seconds   = round(total_wait / steps_run, 4),
             total_reward       = round(total_reward, 4),
             peak_emission      = round(peak_emission, 4),
             peak_emission_step = peak_emission_step,
         )
+
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get(
-    "/health",
-    summary = "Health check",
-    tags    = ["System"],
-)
+@app.get("/health", tags=["System"])
 def health():
-    """Returns a simple health status so the frontend can verify connectivity."""
     return {"status": "ok", "q_table_states": len(agent.q_table)}
 
 
-@app.get(
-    "/info",
-    summary = "Model metadata",
-    tags    = ["System"],
-)
+@app.get("/info", tags=["System"])
 def info():
-    """Returns hyperparameters and Q-table statistics for monitoring."""
     return {
         "model"       : "Q-Learning",
         "actions"     : ["keep_green", "switch_phase", "extend_green"],
@@ -341,21 +289,17 @@ def info():
     }
 
 
-@app.get(
-    "/model-info",
-    summary = "Detailed model metadata for dashboard",
-    tags    = ["System"],
-)
+@app.get("/model-info", tags=["System"])
 def model_info():
-    """Returns rich model metadata consumed by the frontend status and ML output panels."""
     return {
-        "model"           : "Q-Learning",
-        "version"         : "1.1.0",
-        "actions"         : ["keep_green", "switch_phase", "extend_green"],
-        "alpha"           : agent.alpha,
-        "gamma"           : agent.gamma,
-        "epsilon"         : round(agent.epsilon, 4),
-        "q_table_size"    : len(agent.q_table),
-        "peak_threshold"  : 5.0,
-        "ambulance_support": True,
+        "model"             : "Q-Learning",
+        "version"           : "1.2.0",
+        "actions"           : ["keep_green", "switch_phase", "extend_green"],
+        "alpha"             : agent.alpha,
+        "gamma"             : agent.gamma,
+        "epsilon"           : round(agent.epsilon, 4),
+        "q_table_size"      : len(agent.q_table),
+        "peak_threshold"    : 5.0,
+        "ambulance_support" : True,
+        "imbalance_override": True,
     }
