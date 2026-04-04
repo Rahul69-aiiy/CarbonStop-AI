@@ -1,13 +1,6 @@
 """
-q_learning.py
--------------
 Q-Learning Agent for Climate-Aware Traffic Signal Optimization.
-
-Fix: now imports from 'environment' (single canonical file).
-Previously imported from 'environment' which had the old weak reward —
-training never used the improved imbalance/wrong-phase penalties.
 """
-
 import ast
 import random
 import json
@@ -17,9 +10,7 @@ from collections import defaultdict
 # FIX: import from environment (canonical), not environment1
 from environment import TrafficEnv, ACTION_LIST, ACTIONS, get_carbon_intensity
 
-# ---------------------------------------------------------------------------
 # Hyperparameters
-# ---------------------------------------------------------------------------
 ALPHA          = 0.1
 GAMMA          = 0.9
 EPSILON_START  = 1.0

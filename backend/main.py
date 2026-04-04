@@ -1,6 +1,4 @@
 """
-main.py
--------
 FastAPI backend for the Climate-Aware Traffic Signal Optimizer.
 
 Endpoints:
@@ -9,13 +7,6 @@ Endpoints:
     GET  /health    — Health check.
     GET  /info      — Model metadata.
     GET  /model-info — Rich metadata for dashboard.
-
-Fixes:
-  - All imports from 'environment' only (environment1.py deleted)
-  - /simulate no longer does mid-function imports from old environment
-  - Hard imbalance override: if one lane has 3x+ more cars than the other,
-    switch_phase is returned immediately without consulting the Q-table.
-    This is a safety net while the retrained model learns the new reward.
 """
 
 import os
@@ -64,10 +55,6 @@ app.add_middleware(
     allow_headers     = ["*"],
 )
 
-
-# ---------------------------------------------------------------------------
-# Schemas
-# ---------------------------------------------------------------------------
 class TrafficState(BaseModel):
     queue_NS:            int      = Field(..., ge=0, le=20)
     queue_EW:            int      = Field(..., ge=0, le=20)
@@ -106,10 +93,7 @@ class SimulateResponse(BaseModel):
     peak_emission:      float
     peak_emission_step: int
 
-
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 def _build_state(ts: TrafficState) -> tuple:
     q_NS_bin   = min(ts.queue_NS // 5, 4)
     q_EW_bin   = min(ts.queue_EW // 5, 4)
@@ -138,9 +122,7 @@ ACTION_EXPLANATIONS = {
 }
 
 
-# ---------------------------------------------------------------------------
 # Endpoints
-# ---------------------------------------------------------------------------
 @app.post("/predict", response_model=PredictResponse, tags=["Signal Control"])
 def predict(traffic_state: TrafficState):
     """
