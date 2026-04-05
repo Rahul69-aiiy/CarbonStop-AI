@@ -23,7 +23,6 @@ ACTIONS = {
 
 ACTION_LIST = list(ACTIONS.keys())
 
-
 # Returns carbon intensity based on hour
 def get_carbon_intensity(hour: int) -> float:
     """
@@ -34,12 +33,10 @@ def get_carbon_intensity(hour: int) -> float:
         return 1.5
     return 1.0
 
-
 # Estimate CO2 from idle vehicles
 def estimate_emission(idle_time: float, carbon_intensity: float) -> float:
     """CO2 (kg) for idle vehicles: idle_time * EMISSION_FACTOR * carbon_intensity."""
     return idle_time * EMISSION_FACTOR * carbon_intensity
-
 
 # Reward logic for RL
 def compute_reward(
@@ -89,7 +86,6 @@ def compute_reward(
         + clear_bonus
         + peak_penalty
     )
-
 
 # Traffic environment class
 class TrafficEnv:
