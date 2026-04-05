@@ -22,7 +22,6 @@ LOG_INTERVAL   = 500
 WARMUP_RATIO   = 0.10
 QTABLE_PATH    = "q_table.json"
 
-
 class QLearningAgent:
     """
     Tabular Q-Learning agent backed by a defaultdict Q-table.
@@ -84,7 +83,6 @@ class QLearningAgent:
             key = tuple(ast.literal_eval(k_str))
             self.q_table[key] = v
         print(f"[INFO] Q-table loaded ← {os.path.abspath(path)}  ({len(self.q_table)} states)")
-
 
 def train(
     num_episodes: int = NUM_EPISODES,
@@ -153,7 +151,6 @@ def train(
 
     agent.save()
     return agent
-
 
 if __name__ == "__main__":
     trained_agent = train()
