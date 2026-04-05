@@ -863,10 +863,17 @@ class AIController {
       }
     };
 
-    setComparison("wait", b.avgWait, a.avgWait, "s");
-    setComparison("co2", b.co2, a.co2, "g");
-    setComparison("fuel", b.fuel, a.fuel, "L");
-    setComparison("thru", b.throughput, a.throughput, "", true);
+setComparison("wait", b.avgWait, a.avgWait, "s");
+
+const b_co2_per = b.throughput > 0 ? parseFloat((b.co2 / b.throughput).toFixed(1)) : b.co2;
+const a_co2_per = a.throughput > 0 ? parseFloat((a.co2 / a.throughput).toFixed(1)) : a.co2;
+setComparison("co2", b_co2_per, a_co2_per, "g/veh");
+
+const b_fuel_per = b.throughput > 0 ? parseFloat((b.fuel / b.throughput).toFixed(4)) : b.fuel;
+const a_fuel_per = a.throughput > 0 ? parseFloat((a.fuel / a.throughput).toFixed(4)) : a.fuel;
+setComparison("fuel", b_fuel_per, a_fuel_per, "L/veh");
+
+setComparison("thru", b.throughput, a.throughput, "", true);
 
     const compPanel = document.getElementById("comparison-panel");
     if (compPanel) compPanel.style.display = "block";
