@@ -145,7 +145,7 @@ def predict(traffic_state: TrafficState):
             return PredictResponse(
                 action             = action_label,
                 carbon_intensity   = carbon_intensity,
-                explanation        = f"🚑 AMBULANCE PRIORITY — immediate green for {amb_dir} corridor.",
+                explanation        = f" AMBULANCE PRIORITY — immediate green for {amb_dir} corridor.",
                 ambulance_override = True,
             )
 
@@ -157,7 +157,7 @@ def predict(traffic_state: TrafficState):
                 action             = "switch_phase",
                 carbon_intensity   = carbon_intensity,
                 explanation        = (
-                    f"⚠️ IMBALANCE OVERRIDE — green lane has {green_q} cars "
+                    f" IMBALANCE OVERRIDE — green lane has {green_q} cars "
                     f"but red lane has {red_q}. Switching to relieve congestion."
                 ),
                 imbalance_override = True,
